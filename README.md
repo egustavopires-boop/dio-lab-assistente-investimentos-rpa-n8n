@@ -1,3 +1,5 @@
+**Demonstração do MVP:** [Ver vídeo do fluxo a funcionar no n8n](https://drive.google.com/file/d/1YW9CqRRY7ZVtnFznmFfDGc8Dj976PcUP/view?usp=sharing)
+
 # Criando um Assistente de Investimentos com RPA e IA Generativa
 
 ## Descrição
