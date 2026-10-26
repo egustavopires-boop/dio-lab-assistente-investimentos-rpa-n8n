@@ -1,0 +1,174 @@
+{
+  "name": "Projeto Final",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -176,
+        -32
+      ],
+      "id": "ef042171-c623-47b2-a2d8-c06168424adf",
+      "name": "Webhook",
+      "webhookId": "692f8875-260e-4270-b475-e51e41c3aa05"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        832,
+        -48
+      ],
+      "id": "1218068e-75ce-451d-a001-fe1b007c4534",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        80,
+        -32
+      ],
+      "id": "eec8251e-9556-4db1-bfa1-0370927bfd8c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n    const cols = line.split(\",\").map(c => c.trim());\n    const obj = {};\n    headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n    // normaliza mínimo para número\n    obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n    return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -32
+      ],
+      "id": "685a9e79-b388-4067-8a32-adbf59b7c651",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        416,
+        -352
+      ],
+      "id": "b72a4259-1d6d-4abe-ad80-ee784454cee2",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega os dados do nó anterior (Merge)\nconst dados = $input.all()[0].json;\n\n// Procura os clientes (podem estar na raiz ou dentro de 'body' vindo do webhook)\nconst clientes = dados.clientes || (dados.body ? dados.body.clientes : null) || [];\n\n// Procura os investimentos\nconst investimentos = dados.investimentos || [];\n\n// Se a lista de clientes estiver vazia, retorna um aviso em vez de dar erro\nif (clientes.length === 0) {\n  return [{ json: { erro: \"Lista de clientes não encontrada. Execute o script Python novamente para enviar os dados para o Webhook.\" } }];\n}\n\n// Função auxiliar para escolher um item aleatório\nconst pick = (arr) => arr[Math.floor(Math.random() * arr.length)];\n\nconst resultados = clientes.map(c => {\n  const { nome, email, perfil, saldo } = c;\n  \n  // Limpa o saldo para número (ex: \"R$ 12.500,00\" -> 12500)\n  const saldoNum = Number(String(saldo).replace(/[^\\d,-]/g, \"\").replace(\",\", \".\"));\n  \n  // Encontra os investimentos que combinam com o perfil do cliente\n  const compativeis = investimentos.filter(inv => inv.perfil.toLowerCase() === perfil.toLowerCase());\n  \n  let escolhido = null;\n  let motivo = \"sem_investimento_compativel\";\n  let mensagens = [];\n  \n  if (compativeis.length > 0) {\n    // Filtra os que o cliente tem saldo suficiente para investir\n    const acessiveis = compativeis.filter(inv => saldoNum >= inv.minimo);\n    \n    if (acessiveis.length > 0) {\n      escolhido = pick(acessiveis);\n      motivo = \"saldo_ok\";\n      \n      mensagens = [\n        `Olá ${nome}! Pelo seu perfil (${perfil}), uma boa opção é **${escolhido.produto}** (mínimo R$ ${escolhido.minimo.toFixed(2)}). Com seu saldo atual (${saldo}), você já consegue investir. Rentabilidade: ${escolhido.rentabilidade}.`,\n        `Oi ${nome}! Recomendação para perfil ${perfil}: **${escolhido.produto}** (mínimo R$ ${escolhido.minimo.toFixed(2)}). Seu saldo (${saldo}) já atende o mínimo. Rentabilidade: ${escolhido.rentabilidade}.`,\n        `${nome}, indo direto ao ponto: para o perfil ${perfil}, **${escolhido.produto}** (mínimo R$ ${escolhido.minimo.toFixed(2)}). Você tem ${saldo}, então dá pra aplicar. Rentabilidade: ${escolhido.rentabilidade}.`\n      ];\n    } else {\n      // Se não tem saldo, recomenda o mais barato do perfil\n      escolhido = compativeis.reduce((prev, curr) => (curr.minimo < prev.minimo ? curr : prev));\n      motivo = \"saldo_insuficiente\";\n      \n      mensagens = [\n        `Olá ${nome}! Seu perfil é ${perfil}. A opção mais acessível hoje é **${escolhido.produto}** (mínimo R$ ${escolhido.minimo.toFixed(2)}). Seu saldo atual é ${saldo}, então falta um pouquinho para começar. Rentabilidade: ${escolhido.rentabilidade}.`,\n        `Oi ${nome}! Para o perfil ${perfil}, recomendamos **${escolhido.produto}**, mas exige R$ ${escolhido.minimo.toFixed(2)}. Com seu saldo de ${saldo}, sugerimos poupar mais um pouco!`,\n      ];\n    }\n  } else {\n    mensagens = [`Olá ${nome}! No momento não encontramos produtos específicos para o perfil ${perfil}.`];\n  }\n\n  return {\n    nome,\n    email,\n    perfil,\n    saldo_texto: saldo,\n    saldo_num: saldoNum,\n    recomendacao: escolhido,\n    motivo,\n    mensagens,\n    mensagem_escolhida: pick(mensagens),\n  };\n});\n\nreturn [{\n  json: {\n    ok: true,\n    total_clientes: resultados.length,\n    total_investimentos: investimentos.length,\n    resultados\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        -80
+      ],
+      "id": "c86f8f4d-2d3b-4017-ae0d-76d4d1cba2cc",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "1d0650ff-8cdf-450e-8255-5a6bdfe69dde",
+  "meta": {
+    "instanceId": "1f1926739877339a2dee411abe1d5e4d794b336af9181500791ba8f5078c2b14"
+  },
+  "nodeGroups": [],
+  "id": "1uLlAUc77TaAl8yf",
+  "tags": []
+}
